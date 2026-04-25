@@ -31,7 +31,7 @@ namespace HSync.Core.Network
             var req = new
             {
                 type = "CONNECT_REQ",
-                user = "ARQ_USER_01",
+                user = client.UserId, // Usar el ID real del cliente
                 checkpointSeq = lastServerSeq
             };
 

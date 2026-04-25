@@ -275,6 +275,7 @@ namespace HSync
 
             if (ids.Count > 0)
             {
+                ed.WriteMessage($"\n[H-SYNC] Selección local: {ids.Count} objetos detectados.");
                 var request = new
                 {
                     type = "TEST_MUTATE_REQ",
@@ -283,8 +284,13 @@ namespace HSync
                 };
                 string json = System.Text.Json.JsonSerializer.Serialize(request);
                 await SocketClient.SendDeltaAsync(json);
-                ed.WriteMessage($"\n[H-SYNC] TEST_MUTATE_REQ enviado para {ids.Count} entidades. Esperando mutaciones del servidor...");
+                ed.WriteMessage($"\n[H-SYNC] >> TEST_MUTATE_REQ enviado. Esperando respuesta del Hub...");
             }
+            else
+            {
+                ed.WriteMessage("\n[H-SYNC] Error: No se encontraron entidades compatibles en la selección.");
+            }
+        }
         }
 
         [CommandMethod("HSYNC_HEAVY_TEST")]
