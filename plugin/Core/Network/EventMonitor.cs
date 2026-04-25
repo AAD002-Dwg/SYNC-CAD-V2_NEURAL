@@ -69,10 +69,14 @@ namespace HSync.Core.Network
         private static bool IsEditCommand(string commandName)
         {
             var upperCmd = commandName.ToUpperInvariant();
+            // Ampliamos el espectro para capturar más tipos de creación y edición
             return upperCmd.Contains("MOVE") || upperCmd.Contains("COPY") || 
                    upperCmd.Contains("COLOR") || upperCmd.Contains("ERASE") ||
                    upperCmd.Contains("GRIP") || upperCmd.Contains("PROPERTIES") ||
-                   upperCmd.Contains("CIRCLE") || upperCmd.Contains("LINE");
+                   upperCmd.Contains("CIRCLE") || upperCmd.Contains("LINE") ||
+                   upperCmd.Contains("PLINE") || upperCmd.Contains("RECTANG") ||
+                   upperCmd.Contains("ARC") || upperCmd.Contains("ROTATE") ||
+                   upperCmd.Contains("SCALE") || upperCmd.Contains("STRETCH");
         }
 
         private static void OnCommandWillStart(object sender, CommandEventArgs e)
@@ -96,6 +100,7 @@ namespace HSync.Core.Network
             {
                 foreach (ObjectId id in selection.Value.GetObjectIds())
                 {
+                    if (id.IsErased) continue;
                     var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
                     if (ent != null)
                     {
@@ -122,9 +127,13 @@ namespace HSync.Core.Network
             var client = HSyncPlugin.SocketClient;
             if (client == null || !client.IsConnected) return;
 
+            // REGLA DE ORO: No hacer await dentro de una transacción de AutoCAD.
+            // Recolectamos los JSONs en el hilo de UI y los enviamos después.
+            var deltasToSend = new List<string>();
+
             using (var tr = doc.TransactionManager.StartTransaction())
             {
-                // 1. Detección Crítica de CREATE: Entidades nuevas (ej: COPY o dibujo directo)
+                // 1. Detección de CREATE
                 foreach (ObjectId newId in _newlyCreatedObjects)
                 {
                     if (newId.IsErased) continue;
@@ -132,23 +141,20 @@ namespace HSync.Core.Network
                     if (newEnt != null)
                     {
                         string uuid = newId.Handle.ToString().ToLowerInvariant();
-                        string json = PayloadBuilder.BuildCreate(uuid, newEnt, client.UserId);
-                        await client.SendDeltaAsync(json);
+                        deltasToSend.Add(PayloadBuilder.BuildCreate(uuid, newEnt, client.UserId));
                     }
                 }
 
-                // 2. Diffing Clásico: Emitir UPDATE para entidades mutadas (ej: MOVE) o DELETE si fueron borradas
+                // 2. Detección de UPDATE / DELETE
                 foreach (var kvp in _preCommandSnapshots)
                 {
                     ObjectId id = kvp.Key;
                     EntitySnapshot before = kvp.Value;
 
-                    // Manejo determinista de ERASE
                     if (id.IsErased) 
                     {
                         string uuid = id.Handle.ToString().ToLowerInvariant();
-                        string json = PayloadBuilder.BuildDelete(uuid, client.UserId);
-                        await client.SendDeltaAsync(json);
+                        deltasToSend.Add(PayloadBuilder.BuildDelete(uuid, client.UserId));
                         continue; 
                     }
 
@@ -159,11 +165,16 @@ namespace HSync.Core.Network
                     if (changes.Count > 0)
                     {
                         string uuid = id.Handle.ToString().ToLowerInvariant();
-                        string json = PayloadBuilder.BuildUpdate(uuid, changes, client.UserId);
-                        await client.SendDeltaAsync(json);
+                        deltasToSend.Add(PayloadBuilder.BuildUpdate(uuid, changes, client.UserId));
                     }
                 }
-                tr.Commit();
+                tr.Commit(); // Cerramos la transacción RÁPIDO
+            }
+
+            // Enviamos todo fuera de la transacción (Async-safe)
+            foreach (var json in deltasToSend)
+            {
+                await client.SendDeltaAsync(json);
             }
 
             _preCommandSnapshots.Clear();

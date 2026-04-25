@@ -130,6 +130,9 @@ namespace HSync
             var doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
 
+            // Capturamos el contexto del hilo de UI para poder volver después del await
+            var uiContext = System.Threading.SynchronizationContext.Current;
+
             doc.Editor.WriteMessage($"\n[H-SYNC] Iniciando enlace con {ServerUrl}...");
             
             try 
@@ -139,19 +142,25 @@ namespace HSync
                     SocketClient = new SyncSocketClient(ServerUrl, "ALAN-ACAD");
                 }
 
-                // Iniciamos la conexión WebSocket y el ciclo de vida (Handshake)
+                // Iniciamos la conexión WebSocket (esto causa el thread-hop)
                 await SocketClient.ConnectAsync();
                 await HandshakeManager.InitiateConnectAsync(SocketClient, 0);
                 
-                // Solo llegamos aquí si no hubo excepciones
-                doc.Editor.WriteMessage("\n[H-SYNC] >> CONEXION EXITOSA. Modo Multi-Usuario Activado.");
+                // Volvemos al hilo de UI para tocar la base de datos de AutoCAD
+                uiContext.Post(_ => {
+                    try {
+                        doc.Editor.WriteMessage("\n[H-SYNC] >> CONEXION EXITOSA. Modo Multi-Usuario Activado.");
 
-                // Sprint 12: Auto-Discovery
-                int discovered = RunAutoDiscovery(doc);
-                if (discovered > 0)
-                {
-                    doc.Editor.WriteMessage($"\n[H-SYNC] Auto-Discovery: {discovered} entidades sincronizadas.");
-                }
+                        // Sprint 12: Auto-Discovery
+                        int discovered = RunAutoDiscovery(doc);
+                        if (discovered > 0)
+                        {
+                            doc.Editor.WriteMessage($"\n[H-SYNC] Auto-Discovery: {discovered} entidades sincronizadas.");
+                        }
+                    } catch (System.Exception ex) {
+                        doc.Editor.WriteMessage($"\n[H-SYNC] Error post-conexion: {ex.Message}");
+                    }
+                }, null);
             }
             catch (System.Exception ex)
             {
@@ -188,7 +197,7 @@ namespace HSync
 
                         string uuid = id.Handle.ToString().ToLowerInvariant();
 
-                        // Evitar duplicados si ya estaba registrado (ej: reconexión)
+                        // No enviamos si ya lo conocemos
                         if (OwnershipRegistry.IsOwnedLocally(uuid))
                             continue;
 
@@ -227,16 +236,12 @@ namespace HSync
 
             if (SocketClient == null || !SocketClient.IsConnected)
             {
-                ed.WriteMessage("\n[H-SYNC] Error: No estás conectado al Hub. Ejecuta HSYNC_CONNECT primero.");
+                ed.WriteMessage("\n[H-SYNC] Error: No estás conectado al Hub.");
                 return;
             }
 
             var selResult = ed.GetSelection();
-            if (selResult.Status != PromptStatus.OK)
-            {
-                ed.WriteMessage("\n[H-SYNC] Selección cancelada.");
-                return;
-            }
+            if (selResult.Status != PromptStatus.OK) return;
 
             var ids = new System.Collections.Generic.List<string>();
             using (var tr = doc.TransactionManager.StartTransaction())
@@ -250,23 +255,18 @@ namespace HSync
                 tr.Commit();
             }
 
-            if (ids.Count == 0)
+            if (ids.Count > 0)
             {
-                ed.WriteMessage("\n[H-SYNC] No se encontraron entidades válidas en la selección.");
-                return;
+                var request = new
+                {
+                    type = "TEST_MUTATE_REQ",
+                    user = SocketClient.UserId,
+                    entities = ids
+                };
+                string json = System.Text.Json.JsonSerializer.Serialize(request);
+                await SocketClient.SendDeltaAsync(json);
+                ed.WriteMessage($"\n[H-SYNC] TEST_MUTATE_REQ enviado para {ids.Count} entidades. Esperando mutaciones del servidor...");
             }
-
-            // Enviar solicitud al Hub
-            var request = new
-            {
-                type = "TEST_MUTATE_REQ",
-                user = SocketClient.UserId,
-                ids = ids
-            };
-            string json = System.Text.Json.JsonSerializer.Serialize(request);
-            await SocketClient.SendDeltaAsync(json);
-
-            ed.WriteMessage($"\n[H-SYNC] TEST_MUTATE_REQ enviado para {ids.Count} entidades. Esperando mutaciones del servidor...");
         }
 
         [CommandMethod("HSYNC_HEAVY_TEST")]
