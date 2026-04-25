@@ -130,7 +130,7 @@ namespace HSync
             var doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
 
-            doc.Editor.WriteMessage($"\n[H-SYNC] Conectando al Hub Transaccional ({ServerUrl})...");
+            doc.Editor.WriteMessage($"\n[H-SYNC] Iniciando enlace con {ServerUrl}...");
             
             try 
             {
@@ -142,18 +142,22 @@ namespace HSync
                 // Iniciamos la conexión WebSocket y el ciclo de vida (Handshake)
                 await SocketClient.ConnectAsync();
                 await HandshakeManager.InitiateConnectAsync(SocketClient, 0);
-                doc.Editor.WriteMessage("\n[H-SYNC] Conexion WebSocket Establecida. Modo Multi-Usuario Activado.");
+                
+                // Solo llegamos aquí si no hubo excepciones
+                doc.Editor.WriteMessage("\n[H-SYNC] >> CONEXION EXITOSA. Modo Multi-Usuario Activado.");
 
-                // Sprint 12: Auto-Discovery — Escanear BD y registrar entidades existentes
+                // Sprint 12: Auto-Discovery
                 int discovered = RunAutoDiscovery(doc);
                 if (discovered > 0)
                 {
-                    doc.Editor.WriteMessage($"\n[H-SYNC] Auto-Discovery: {discovered} entidades registradas y enviadas al Hub.");
+                    doc.Editor.WriteMessage($"\n[H-SYNC] Auto-Discovery: {discovered} entidades sincronizadas.");
                 }
             }
             catch (System.Exception ex)
             {
-                doc.Editor.WriteMessage($"\n[H-SYNC] Error de conexion: {ex.Message}");
+                doc.Editor.WriteMessage($"\n[H-SYNC] Error de enlace: {ex.Message}");
+                if (ex.InnerException != null) 
+                    doc.Editor.WriteMessage($"\n[H-SYNC] Detalle: {ex.InnerException.Message}");
             }
         }
 
