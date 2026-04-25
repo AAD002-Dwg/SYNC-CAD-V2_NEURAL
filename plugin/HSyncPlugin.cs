@@ -291,7 +291,6 @@ namespace HSync
                 ed.WriteMessage("\n[H-SYNC] Error: No se encontraron entidades compatibles en la selección.");
             }
         }
-        }
 
         [CommandMethod("HSYNC_HEAVY_TEST")]
         public void TestHeavyGhostInjection()
