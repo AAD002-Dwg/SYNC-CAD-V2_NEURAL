@@ -153,6 +153,7 @@ function handleStandardDelta(ws, delta, broadcast = true) {
     // AC-401: Fusión de Estado (Automerge simulation)
     if (delta.op === 'CREATE') {
         stateMap.set(delta.id, delta);
+        console.log(`[HUB] 🟢 Entidad registrada: ${delta.id} (${delta.type}) por ${delta.user}`);
     } else if (delta.op === 'UPDATE') {
         const existing = stateMap.get(delta.id);
         if (existing) {
@@ -168,14 +169,13 @@ function handleStandardDelta(ws, delta, broadcast = true) {
                 id: delta.id,
                 state: existing.props
             });
-            const clientCount = [...wss.clients].filter(c => c !== ws && c.readyState === 1).length;
-            console.log(`[HUB] RECONCILE_FIX para '${delta.id}' -> ${clientCount} clientes (excluye sender: ${delta.user})`);
             broadcastMessage(fixMsg, ws);
         } else {
             console.log(`[HUB] ⚠️ UPDATE para '${delta.id}' IGNORADO: no existe en stateMap`);
         }
     } else if (delta.op === 'DELETE') {
         stateMap.delete(delta.id);
+        console.log(`[HUB] 🔴 Entidad eliminada: ${delta.id}`);
     }
     
     // Broadcast el delta original (para cursores y otros updates en vivo)
