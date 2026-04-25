@@ -299,33 +299,33 @@ function handleTestMutateReq(ws, payload) {
 }
 
 function handleTestCursorStart(ws, payload) {
-    const botName = " MARIA-BOT\;
- let angle = 0;
- const radius = 100;
- const center = payload.center || [0, 0, 0];
- 
- console.log(\[HUB] ?? Activando Bot de Cursores:  orbitando en \);
+    const botName = "MARIA-BOT";
+    let angle = 0;
+    const radius = 100;
+    const center = payload.center || [0, 0, 0];
+    
+    console.log(`[HUB] 🤖 Activando Bot de Cursores: ${botName} orbitando en ${center}`);
 
- let steps = 0;
- const interval = setInterval(() => {
- angle += 0.1;
- steps++;
- 
- const x = center[0] + radius * Math.cos(angle);
- const y = center[1] + radius * Math.sin(angle);
- 
- const cursorMsg = JSON.stringify({
- type: \CURSOR\,
- user: botName,
- pos: [x, y, 0]
- });
- 
- broadcastMessage(cursorMsg);
+    let steps = 0;
+    const interval = setInterval(() => {
+        angle += 0.1;
+        steps++;
+        
+        const x = center[0] + radius * Math.cos(angle);
+        const y = center[1] + radius * Math.sin(angle);
+        
+        const cursorMsg = JSON.stringify({
+            type: 'CURSOR',
+            user: botName,
+            pos: [x, y, 0]
+        });
+        
+        broadcastMessage(cursorMsg);
 
- if (steps > 300) { // Parar despu�s de 30 segundos
- clearInterval(interval);
- console.log(\[HUB] ?? Bot  ha terminado su recorrido.\);
- broadcastMessage(JSON.stringify({ type: \CURSOR_REMOVE\, user: botName }));
- }
- }, 100);
+        if (steps > 300) { // Parar después de 30 segundos
+            clearInterval(interval);
+            console.log(`[HUB] 🤖 Bot ${botName} ha terminado su recorrido.`);
+            broadcastMessage(JSON.stringify({ type: 'CURSOR_REMOVE', user: botName }));
+        }
+    }, 100);
 }
