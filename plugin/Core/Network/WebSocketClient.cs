@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Autodesk.AutoCAD.Geometry;
 
 namespace HSync.Core.Network
 {
@@ -100,61 +101,64 @@ namespace HSync.Core.Network
                         if (type == "RECONCILE_FIX")
                         {
                             string entityId = doc.RootElement.GetProperty("id").GetString();
-                            // BUGFIX: Serializar ANTES de salir del using (JsonElement use-after-dispose)
                             string winnerStateRaw = doc.RootElement.GetProperty("state").GetRawText();
 
-                            Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager
-                                .MdiActiveDocument?.Editor.WriteMessage(
-                                    $"\n[H-SYNC] RECONCILE_FIX para '{entityId}'");
-
-                            AppIdleManager.EnqueueAction(() => 
-                            {
-                                try
-                                {
-                                    Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager
-                                        .MdiActiveDocument?.Editor.WriteMessage(
-                                            $"\n[H-SYNC] Ejecutando SetGlowRed('{entityId}')...");
-                                    HSync.Render.GhostManager.SetGlowRed(entityId);
-                                }
-                                catch (Exception glowEx)
-                                {
-                                    Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager
-                                        .MdiActiveDocument?.Editor.WriteMessage(
-                                            $"\n[H-SYNC ERROR] SetGlowRed crash: {glowEx.Message}");
-                                }
+                            AppIdleManager.EnqueueAction(() => {
+                                HSync.Render.GhostManager.SetGlowRed(entityId);
                             });
 
-                            Task.Delay(2000).ContinueWith(_ => 
-                            {
-                                AppIdleManager.EnqueueAction(() => 
-                                {
-                                    try
-                                    {
-                                        using (var stateDoc = System.Text.Json.JsonDocument.Parse(winnerStateRaw))
-                                        {
-                                            HSync.Render.GhostManager.ApplyMergedState(entityId, stateDoc.RootElement);
-                                        }
-                                    }
-                                    catch (Exception mergeEx)
-                                    {
-                                        Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager
-                                            .MdiActiveDocument?.Editor.WriteMessage(
-                                                $"\n[H-SYNC ERROR] ApplyMergedState crash: {mergeEx.Message}");
-                                    }
+                            Task.Delay(2000).ContinueWith(_ => {
+                                AppIdleManager.EnqueueAction(() => {
+                                    using (var stateDoc = System.Text.Json.JsonDocument.Parse(winnerStateRaw))
+                                        HSync.Render.GhostManager.ApplyMergedState(entityId, stateDoc.RootElement);
                                 });
                             });
-
                         }
                         else if (type == "SESSION_INIT")
                         {
-                            // Como la serialización de JsonElement destruye su memoria fuera del scope using,
-                            // enviamos el payload raw en formato string al HandshakeManager y que él lo parsee.
                             string rawPayload = doc.RootElement.GetRawText();
-                            _ = Task.Run(async () => 
-                            {
+                            _ = Task.Run(async () => {
                                 using (var initDoc = System.Text.Json.JsonDocument.Parse(rawPayload))
-                                {
                                     await HandshakeManager.HandleSessionInitAsync(initDoc.RootElement, this);
+                            });
+                        }
+                        else if (type == "CURSOR")
+                        {
+                            string senderId = doc.RootElement.GetProperty("user").GetString();
+                            var pos = doc.RootElement.GetProperty("pos");
+                            var point = new Point3d(pos[0].GetDouble(), pos[1].GetDouble(), pos[2].GetDouble());
+                            
+                            // Actualizar visualización del cursor (Thread-safe via AppIdle)
+                            AppIdleManager.EnqueueAction(() => {
+                                HSync.Render.CursorManager.UpdateRemoteCursor(senderId, point);
+                            });
+                        }
+                        else if (doc.RootElement.TryGetProperty("op", out var opProp))
+                        {
+                            // ¡ESTE ES EL MOTOR DE SYNC EN VIVO!
+                            // Si el mensaje tiene una "op" (CREATE, UPDATE, DELETE), es un Delta de geometría.
+                            string op = opProp.GetString();
+                            string id = doc.RootElement.GetProperty("id").GetString();
+                            string rawDelta = doc.RootElement.GetRawText();
+
+                            AppIdleManager.EnqueueAction(() => {
+                                try {
+                                    using (var deltaDoc = System.Text.Json.JsonDocument.Parse(rawDelta))
+                                    {
+                                        if (op == "DELETE") {
+                                            HSync.Render.GhostManager.RemoveGhost(id);
+                                        } else {
+                                            // Para CREATE y UPDATE, inyectamos o actualizamos el holograma
+                                            var deltaElem = deltaDoc.RootElement;
+                                            if (deltaElem.TryGetProperty("props", out var props) && props.TryGetProperty("geom", out var geom)) {
+                                                // Reutilizamos ApplyMergedState para actualizar la geometría del ghost
+                                                // Si el ghost no existe, primero lo creamos (lógica simple para Fase 2)
+                                                HSync.Render.GhostManager.ApplyIncomingDelta(id, deltaElem);
+                                            }
+                                        }
+                                    }
+                                } catch (Exception ex) {
+                                    Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument?.Editor.WriteMessage($"\n[H-SYNC ERR] Delta Sync Error: {ex.Message}");
                                 }
                             });
                         }

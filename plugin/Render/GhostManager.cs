@@ -193,5 +193,28 @@ namespace HSync.Render
                 TransientManager.CurrentTransientManager.UpdateTransient(existing, _viewportIds);
             }
         }
+        /// <summary>
+        /// Sprint 12: Inyecta o actualiza un holograma basado en un Delta de red.
+        /// </summary>
+        public static void ApplyIncomingDelta(string globalId, System.Text.Json.JsonElement delta)
+        {
+            if (!_activeGhosts.TryGetValue(globalId, out Entity ghost))
+            {
+                // Si el ghost no existe, lo creamos según su tipo
+                string type = delta.GetProperty("type").GetString().ToUpper();
+                if (type == "LINE") ghost = new Line();
+                else if (type == "CIRCLE") ghost = new Circle();
+                else if (type == "POLYLINE") ghost = new Autodesk.AutoCAD.DatabaseServices.Polyline();
+                else return; // Tipo no soportado
+
+                AddOrUpdateGhost(globalId, ghost);
+            }
+
+            // Aplicamos las propiedades del delta (geom, color, layer)
+            if (delta.TryGetProperty("props", out var props))
+            {
+                ApplyMergedState(globalId, props);
+            }
+        }
     }
 }

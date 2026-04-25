@@ -64,6 +64,11 @@ namespace HSync
 
         public void Terminate()
         {
+            if (Application.DocumentManager.MdiActiveDocument != null)
+            {
+                Application.DocumentManager.MdiActiveDocument.Editor.PointMonitor -= OnPointMonitor;
+            }
+
             Application.DocumentManager.DocumentDestroyed -= OnDocumentDestroyed;
             
             // Limpieza segura requerida por el motor nativo de AutoCAD
@@ -71,6 +76,7 @@ namespace HSync
             HologramOsnapOverrule.Terminate();
             EventMonitor.Terminate();
             GhostManager.ClearAllGhosts();
+            CursorManager.ClearAllCursors();
         }
 
         [CommandMethod("HSYNC_SERVER")]
@@ -124,15 +130,15 @@ namespace HSync
             Application.DocumentManager.MdiActiveDocument?.Editor.WriteMessage("\n[H-SYNC] Hologramas purgados.");
         }
 
+        private DateTime _lastCursorSend = DateTime.MinValue;
+
         [CommandMethod("HSYNC_CONNECT")]
         public async void ConnectToHub()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
 
-            // Capturamos el contexto del hilo de UI para poder volver después del await
             var uiContext = System.Threading.SynchronizationContext.Current;
-
             doc.Editor.WriteMessage($"\n[H-SYNC] Iniciando enlace con {ServerUrl}...");
             
             try 
@@ -142,16 +148,16 @@ namespace HSync
                     SocketClient = new SyncSocketClient(ServerUrl, "ALAN-ACAD");
                 }
 
-                // Iniciamos la conexión WebSocket (esto causa el thread-hop)
                 await SocketClient.ConnectAsync();
                 await HandshakeManager.InitiateConnectAsync(SocketClient, 0);
                 
-                // Volvemos al hilo de UI para tocar la base de datos de AutoCAD
                 uiContext.Post(_ => {
                     try {
                         doc.Editor.WriteMessage("\n[H-SYNC] >> CONEXION EXITOSA. Modo Multi-Usuario Activado.");
+                        
+                        // Sprint 12: Activar Sincronización de Cursores
+                        doc.Editor.PointMonitor += OnPointMonitor;
 
-                        // Sprint 12: Auto-Discovery
                         int discovered = RunAutoDiscovery(doc);
                         if (discovered > 0)
                         {
@@ -165,9 +171,21 @@ namespace HSync
             catch (System.Exception ex)
             {
                 doc.Editor.WriteMessage($"\n[H-SYNC] Error de enlace: {ex.Message}");
-                if (ex.InnerException != null) 
-                    doc.Editor.WriteMessage($"\n[H-SYNC] Detalle: {ex.InnerException.Message}");
             }
+        }
+
+        private void OnPointMonitor(object sender, PointMonitorEventArgs e)
+        {
+            if (SocketClient == null || !SocketClient.IsConnected) return;
+
+            // Throttling: Solo enviamos cursor cada 60ms (aprox 16fps) para no saturar
+            if ((DateTime.UtcNow - _lastCursorSend).TotalMilliseconds < 60) return;
+
+            var pt = e.Context.RawPoint;
+            string json = $"{{\"type\":\"CURSOR\",\"user\":\"{SocketClient.UserId}\",\"pos\":[{pt.X},{pt.Y},{pt.Z}]}}";
+            
+            _ = SocketClient.SendDeltaAsync(json);
+            _lastCursorSend = DateTime.UtcNow;
         }
 
         /// <summary>
