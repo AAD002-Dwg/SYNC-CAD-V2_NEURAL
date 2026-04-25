@@ -225,7 +225,7 @@ function broadcastMessage(rawMsg, excludeWs = null) {
 
 // Sprint 12: Bot de Mutación Automática por Selección
 function handleTestMutateReq(ws, payload) {
-    const ids = payload.ids || [];
+    const ids = payload.entities || payload.ids || [];
     const requesterUser = payload.user || 'TESTER';
     const botUser = 'TEST_BOT';
     const colors = [1, 2, 3, 4, 5, 6]; // Rojo, Amarillo, Verde, Cyan, Azul, Magenta
