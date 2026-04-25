@@ -72,6 +72,9 @@ wss.on('connection', (ws, req) => {
                 case 'OFFLINE_PUSH':
                     handleOfflinePush(ws, payload);
                     break;
+                case 'TEST_CURSOR_START':
+                    handleTestCursorStart(ws, payload);
+                    break;
                 case 'TEST_MUTATE_REQ':
                     handleTestMutateReq(ws, payload);
                     break;
@@ -293,4 +296,36 @@ function handleTestMutateReq(ws, payload) {
     });
 
     console.log(`[HUB] TEST_MUTATE completado: ${ids.length} mutaciones generadas por '${botUser}'.`);
+}
+
+function handleTestCursorStart(ws, payload) {
+    const botName = " MARIA-BOT\;
+ let angle = 0;
+ const radius = 100;
+ const center = payload.center || [0, 0, 0];
+ 
+ console.log(\[HUB] ?? Activando Bot de Cursores:  orbitando en \);
+
+ let steps = 0;
+ const interval = setInterval(() => {
+ angle += 0.1;
+ steps++;
+ 
+ const x = center[0] + radius * Math.cos(angle);
+ const y = center[1] + radius * Math.sin(angle);
+ 
+ const cursorMsg = JSON.stringify({
+ type: \CURSOR\,
+ user: botName,
+ pos: [x, y, 0]
+ });
+ 
+ broadcastMessage(cursorMsg);
+
+ if (steps > 300) { // Parar después de 30 segundos
+ clearInterval(interval);
+ console.log(\[HUB] ?? Bot  ha terminado su recorrido.\);
+ broadcastMessage(JSON.stringify({ type: \CURSOR_REMOVE\, user: botName }));
+ }
+ }, 100);
 }

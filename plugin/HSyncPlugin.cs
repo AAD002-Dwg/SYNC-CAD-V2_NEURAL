@@ -217,9 +217,13 @@ namespace HSync
                         var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
                         if (ent == null) continue;
 
-                        // Solo entidades compatibles con nuestro motor de diffing
-                        if (!(ent is Line || ent is Circle || ent is Autodesk.AutoCAD.DatabaseServices.Polyline))
-                            continue;
+                        // Solo entidades compatibles (Sprint 12: soporte extendido)
+                        bool isValid = (ent is Line || ent is Circle || 
+                                      ent is Autodesk.AutoCAD.DatabaseServices.Polyline || 
+                                      ent is Polyline2d || ent is Polyline3d);
+                        
+                        if (ent is BlockBegin || ent is BlockEnd) isValid = false;
+                        if (!isValid) continue;
 
                         string uuid = id.Handle.ToString().ToLowerInvariant();
 
@@ -310,6 +314,30 @@ namespace HSync
             {
                 ed.WriteMessage("\n[H-SYNC] Error: No se encontraron entidades compatibles en la selección.");
             }
+        }
+
+        [CommandMethod("HSYNC_TEST_CURSORS")]
+        public async void TestRemoteCursors()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var ed = doc.Editor;
+
+            if (SocketClient == null || !SocketClient.IsConnected)
+            {
+                ed.WriteMessage("\n[H-SYNC] Error: Debes estar conectado (HSYNC_CONNECT) para probar cursores.");
+                return;
+            }
+
+            ed.WriteMessage("\n[H-SYNC] >> Invocando colaborador virtual (MARIA-BOT)...");
+            
+            var request = new
+            {
+                type = "TEST_CURSOR_START",
+                center = new double[] { 0, 0, 0 } // Orbitar cerca del origen
+            };
+
+            string json = System.Text.Json.JsonSerializer.Serialize(request);
+            await SocketClient.SendDeltaAsync(json);
         }
 
         [CommandMethod("HSYNC_HEAVY_TEST")]
