@@ -1,0 +1,37 @@
+# ============================================
+# SYNC-CAD Neural v2.0 — .gitignore
+# ============================================
+
+# ── .NET / C# Build Artifacts ──
+plugin/bin/
+plugin/obj/
+*.dll
+*.pdb
+*.exe
+*.cache
+*.user
+*.suo
+*.nupkg
+
+# ── Node.js ──
+server/node_modules/
+server/npm-debug.log*
+
+# ── Archivos Temporales de Test ──
+server/temp_*.js
+
+# ── IDE ──
+.vs/
+.vscode/
+*.swp
+*~
+
+# ── OS ──
+Thumbs.db
+.DS_Store
+
+# ── AutoCAD Backups ──
+*.bak
+*.sv$
+*.dwl
+*.dwl2

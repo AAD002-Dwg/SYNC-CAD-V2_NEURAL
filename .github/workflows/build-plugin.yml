@@ -1,0 +1,45 @@
+name: Build AutoCAD Plugin
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-plugin:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - target: net48
+            artifact-name: HSync-NET48-AutoCAD2019-2024
+            dotnet-version: '8.0.x'
+          - target: net8.0-windows
+            artifact-name: HSync-NET8-AutoCAD2025-2026
+            dotnet-version: '8.0.x'
+          - target: net10.0-windows
+            artifact-name: HSync-NET10-AutoCAD2027
+            dotnet-version: '10.0.x'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET ${{ matrix.dotnet-version }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ matrix.dotnet-version }}
+
+      - name: Restore NuGet packages
+        run: dotnet restore plugin/HSync.csproj
+
+      - name: Build ${{ matrix.target }}
+        run: dotnet build plugin/HSync.csproj --configuration Release --framework ${{ matrix.target }} --no-restore
+
+      - name: Upload Artifact — ${{ matrix.artifact-name }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: plugin/bin/Release/${{ matrix.target }}/
+          retention-days: 90
