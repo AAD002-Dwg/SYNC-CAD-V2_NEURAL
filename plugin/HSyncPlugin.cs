@@ -90,9 +90,17 @@ namespace HSync
             var res = ed.GetString(prompt);
             if (res.Status == PromptStatus.OK)
             {
-                string newUrl = res.StringResult;
+                string newUrl = res.StringResult.Trim();
                 
-                // Cerrar conexión anterior si existía y cambió la URL
+                // Auto-corrección de protocolo inteligente (Sprint 12)
+                if (newUrl.StartsWith("https://")) newUrl = newUrl.Replace("https://", "wss://");
+                else if (newUrl.StartsWith("http://")) newUrl = newUrl.Replace("http://", "ws://");
+                else if (!newUrl.StartsWith("ws://") && !newUrl.StartsWith("wss://"))
+                {
+                    newUrl = "ws://" + newUrl; // Fallback por defecto
+                }
+
+                // Reiniciar cliente si la URL cambió radicalmente
                 if (SocketClient != null && ServerUrl != newUrl)
                 {
                     SocketClient = null; 
@@ -264,11 +272,23 @@ namespace HSync
             var ids = new System.Collections.Generic.List<string>();
             using (var tr = doc.TransactionManager.StartTransaction())
             {
-                foreach (ObjectId objId in selResult.Value.GetObjectIds())
+                var selection = selResult.Value;
+                ed.WriteMessage($"\n[H-SYNC DEBUG] Analizando {selection.Count} objetos seleccionados...");
+                
+                foreach (ObjectId objId in selection.GetObjectIds())
                 {
                     if (objId.IsErased) continue;
-                    string uuid = objId.Handle.ToString().ToLowerInvariant();
-                    ids.Add(uuid);
+                    
+                    using (var ent = tr.GetObject(objId, OpenMode.ForRead) as Entity)
+                    {
+                        if (ent != null)
+                        {
+                            string className = ent.GetType().Name;
+                            string uuid = objId.Handle.ToString().ToLowerInvariant();
+                            ed.WriteMessage($"\n - Detectado: {className} [Handle: {uuid}]");
+                            ids.Add(uuid);
+                        }
+                    }
                 }
                 tr.Commit();
             }
