@@ -89,9 +89,6 @@ namespace HSync.Core.Network
 
                     string msg = Encoding.UTF8.GetString(buffer, 0, result.Count);
                     
-                    Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager
-                        .MdiActiveDocument?.Editor.WriteMessage($"\n[H-SYNC NET] Recibido: {msg.Substring(0, Math.Min(msg.Length, 120))}");
-                    
                     using (var doc = System.Text.Json.JsonDocument.Parse(msg))
                     {
                         string type = null;
@@ -125,6 +122,8 @@ namespace HSync.Core.Network
                         else if (type == "CURSOR")
                         {
                             string senderId = doc.RootElement.GetProperty("user").GetString();
+                            if (senderId == _userId) continue; // No procesar nuestro propio cursor
+
                             var pos = doc.RootElement.GetProperty("pos");
                             var point = new Point3d(pos[0].GetDouble(), pos[1].GetDouble(), pos[2].GetDouble());
                             
