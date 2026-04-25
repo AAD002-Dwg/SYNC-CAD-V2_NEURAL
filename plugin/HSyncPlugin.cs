@@ -18,6 +18,7 @@ namespace HSync
     public class HSyncPlugin : IExtensionApplication
     {
         public static SyncSocketClient SocketClient { get; private set; }
+        public static string ServerUrl { get; set; } = "ws://localhost:3000";
 
         public void Initialize()
         {
@@ -72,6 +73,30 @@ namespace HSync
             GhostManager.ClearAllGhosts();
         }
 
+        [CommandMethod("HSYNC_SERVER")]
+        public void SetServerUrl()
+        {
+            var ed = Application.DocumentManager.MdiActiveDocument.Editor;
+            var prompt = new PromptStringOptions($"\nURL del Hub actual: {ServerUrl}\nNueva URL (ej: wss://hsync-hub.onrender.com): ");
+            prompt.AllowSpaces = false;
+            prompt.DefaultValue = ServerUrl;
+            
+            var res = ed.GetString(prompt);
+            if (res.Status == PromptStatus.OK)
+            {
+                string newUrl = res.StringResult;
+                
+                // Cerrar conexión anterior si existía y cambió la URL
+                if (SocketClient != null && ServerUrl != newUrl)
+                {
+                    SocketClient = null; 
+                }
+                
+                ServerUrl = newUrl;
+                ed.WriteMessage($"\n[H-SYNC] Servidor configurado: {ServerUrl}");
+            }
+        }
+
         [CommandMethod("HSYNC_TEST_GHOST")]
         public void TestGhostInjection()
         {
@@ -105,13 +130,13 @@ namespace HSync
             var doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
 
-            doc.Editor.WriteMessage("\n[H-SYNC] Conectando al Hub Transaccional (ws://localhost:3000)...");
+            doc.Editor.WriteMessage($"\n[H-SYNC] Conectando al Hub Transaccional ({ServerUrl})...");
             
             try 
             {
-                if (SocketClient == null) 
+                if (SocketClient == null || !SocketClient.IsConnected) 
                 {
-                    SocketClient = new SyncSocketClient("ws://localhost:3000", "ALAN-ACAD");
+                    SocketClient = new SyncSocketClient(ServerUrl, "ALAN-ACAD");
                 }
 
                 // Iniciamos la conexión WebSocket y el ciclo de vida (Handshake)

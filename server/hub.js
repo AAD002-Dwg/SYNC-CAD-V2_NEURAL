@@ -4,7 +4,7 @@ const PORT = process.env.PORT || 3000;
 
 // Estado en Memoria (RAM-based para Fase 1)
 const seqCache = new Map(); // Para Idempotencia (AC-203)
-const deltaHistory = [];    // Historial de la sala (Fallback de Redis)
+const deltaHistory = [];    // Historial de la sala (Últimos 50 deltas para el Dashboard)
 const stateMap = new Map(); // AC-401: Mapeo exacto UUID -> Estado Consolidado
 let globalServerSeq = 1000;
 
@@ -14,7 +14,25 @@ const aliveTimers = new Map();
 // AC-403: Servidor HTTP para Validación de Estado
 const http = require('http');
 const server = http.createServer((req, res) => {
-    if (req.url === '/api/snapshot' && req.method === 'GET') {
+    // CORS para el Dashboard
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+    }
+
+    if (req.url === '/api/status' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            history: deltaHistory.slice(-20).reverse(),
+            stateCount: stateMap.size,
+            activeUsers: Array.from(new Set([...wss.clients].map(c => c.userId).filter(Boolean)))
+        }));
+    } else if (req.url === '/api/snapshot' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(Array.from(stateMap.values())));
     } else {
@@ -120,9 +138,17 @@ function handleStandardDelta(ws, delta, broadcast = true) {
     seqCache.set(cacheKey, delta.client_seq);
 
     delta.server_seq = ++globalServerSeq;
+    delta.timestamp = Date.now();
     
-    // RAM History
-    deltaHistory.push(delta);
+    // RAM History (Guardar solo los últimos 50 eventos para el Dashboard)
+    deltaHistory.push({
+        id: delta.id,
+        op: delta.op,
+        user: delta.user,
+        timestamp: delta.timestamp,
+        type: delta.type
+    });
+    if (deltaHistory.length > 50) deltaHistory.shift();
 
     // AC-401: Fusión de Estado (Automerge simulation)
     if (delta.op === 'CREATE') {
@@ -135,6 +161,7 @@ function handleStandardDelta(ws, delta, broadcast = true) {
             }
             existing.user = delta.user;
             existing.server_seq = delta.server_seq;
+            existing.timestamp = delta.timestamp;
 
             const fixMsg = JSON.stringify({
                 type: 'RECONCILE_FIX',
@@ -151,6 +178,7 @@ function handleStandardDelta(ws, delta, broadcast = true) {
         stateMap.delete(delta.id);
     }
     
+    // Broadcast el delta original (para cursores y otros updates en vivo)
     if (broadcast) {
         broadcastMessage(JSON.stringify(delta), ws);
     }

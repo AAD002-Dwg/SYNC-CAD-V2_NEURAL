@@ -35,11 +35,14 @@ neural_v2/
 │   │   ├── GhostManager.cs   # Motor de Hologramas (RAM)
 │   │   └── ShadowOverrule.cs # Shadow Triplet
 │   ├── HSyncPlugin.cs        # Punto de entrada
-│   └── HSync.csproj          # Multi-target: net48 + net8.0
+│   └── HSync.csproj          # Multi-target: net48 + net8.0 + net10.0
 ├── server/                    # Hub WebSocket (Node.js)
-│   ├── hub.js                # Servidor principal
+│   ├── hub.js                # Servidor principal (HTTP + WS)
 │   ├── tester.js             # Bot BDD (Carla/Beto)
 │   └── package.json
+├── dashboard/                 # Panel Web (React + Vite)
+│   ├── src/                  # Monitoreo en tiempo real
+│   └── index.html
 ├── docs/                      # Documentación técnica
 │   ├── CONTEXT_AI.md         # Brain dump para IA
 │   ├── CHANGELOG.md          # Historial de cambios
@@ -71,11 +74,19 @@ npm start
 
 | Comando | Descripción |
 |---------|-------------|
+| `HSYNC_SERVER` | **(Nuevo)** Configura la URL del Hub (ej: `wss://tu-app.onrender.com`). |
 | `HSYNC_CONNECT` | Conectar al Hub + Auto-Discovery de entidades |
 | `HSYNC_BAKE` | Persistir hologramas en el DWG local |
 | `HSYNC_TEST_ME` | Seleccionar entidades y disparar mutaciones remotas de prueba |
 | `HSYNC_CLEAR` | Purgar todos los hologramas |
-| `HSYNC_DEBUG` | Info de diagnóstico |
+
+### 📊 Dashboard Web (Monitoreo)
+
+Ubicado en la carpeta `/dashboard`. Permite ver la salud del Hub y la actividad de los usuarios.
+
+1. **Instalación:** `cd dashboard && npm install`
+2. **Ejecución:** `npm run dev`
+3. **Acceso:** `http://localhost:5173`
 
 ## 🌐 Deploy a Producción (Render)
 
