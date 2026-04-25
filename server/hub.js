@@ -279,6 +279,7 @@ function handleTestMutateReq(ws, payload) {
         const delta = {
             op: 'UPDATE',
             id: id,
+            type: existing.type, // Sprint 12: Asegurar que el tipo viaje en la mutación
             projectId: 'PROJ-TEST-AC601',
             client_seq: Date.now() + index,
             server_seq: null,
