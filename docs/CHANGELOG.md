@@ -5,6 +5,20 @@ Registro formal de todos los cambios, mejoras continuas, y adiciones arquitectó
 El formato se basa en "Keep a Changelog" y respeta SemVer (versionado semántico). Emplearemos un enfoque sistemático y estricto donde **cada cambio estructural o lógico que toque la fase de diseño es documentado aquí preventivamente.**
 
 ### Added
+- **Modularización del Motor de Entidades (Sprint 14):**
+  - Implementación del patrón Strategy con `IEntitySynchronizer` y `SyncRegistry` (despachador O(1) por tipo de entidad).
+  - Extracción de lógica duplicada de `GhostManager.cs`, `HSyncPlugin.cs` y `PayloadBuilder.cs` a 6 Synchronizers independientes.
+  - **3 nuevos tipos de entidad soportados:** `Arc` (arcos), `DBText` (texto simple), `MText` (texto multilínea).
+  - Centralización de propiedades comunes (`Color`, `Layer`, `Linetype`) en `SyncRegistry.ApplyCommonProps()`.
+  - `AutoDiscovery` extendido para detectar automáticamente los nuevos tipos de entidad al conectarse.
+  - Documentación técnica: `docs/NEURAL_SYNC_REGISTRY.md`.
+- **Estabilización de Hologramas Colaborativos (Sprint 13):**
+  - **Modo DirectTopmost restaurado:** Revertido de `TransientDrawingMode.Main` a `DirectTopmost` para eliminar errores `eDegenerateGeometry` causados por validaciones de DB asíncronas.
+  - **Motor de Horneado Universal (`HSYNC_BAKE` V18→V26):** Reescrito para materializar tanto sombras locales como fantasmas remotos (bots/compañeros). Usa instanciación pura (no `Clone()`) para evitar corrupción de estado interno de AutoCAD.
+  - **Actualización Atómica de Vértices:** Polilíneas ahora usan `SetPointAt()` + recorte desde el final en lugar de vaciar y recrear, eliminando la degradación silenciosa que las hacía invisibles.
+  - **Cadencia Humana:** Intervalo del bot reducido de 150ms a 300ms para no saturar el hilo de UI de AutoCAD.
+  - **Fix de cursores:** `ClearAllCursors()` ahora usa try-catch robusto y fuerza `UpdateScreen()` al desactivar.
+  - **Blindaje Geométrico Total:** Validación de Radius > 0.001, vértices >= 2, y Length > 0.001 antes de inyectar geometrías en TransientManager.
 - **Persistencia y Ciclo de Vida (Sprint 11):**
   - Implementación del "Bake Engine" (`HSYNC_BAKE`): Transforma los hologramas canónicos en geometría nativa definitiva escribiéndolos en el DWG y removiendo el Shadowing.
   - Prevención de Eco (Echo-Loop): Añadido `EventMonitor.IsBaking` para evitar que el Bake dispare deltas `UPDATE` redundantes.

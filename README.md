@@ -28,14 +28,23 @@ SYNC-CAD Neural transforma AutoCAD en una plataforma colaborativa en tiempo real
 neural_v2/
 ├── plugin/                    # Complemento de AutoCAD (C#)
 │   ├── Core/
+│   │   ├── Sync/             # Sprint 14: Motor Modular de Entidades
+│   │   │   ├── IEntitySynchronizer.cs  # Interfaz + SyncRegistry
+│   │   │   ├── LineSynchronizer.cs
+│   │   │   ├── CircleSynchronizer.cs
+│   │   │   ├── PolylineSynchronizer.cs
+│   │   │   ├── ArcSynchronizer.cs
+│   │   │   ├── TextSynchronizer.cs
+│   │   │   └── MTextSynchronizer.cs
 │   │   ├── Network/          # WebSocket, Diffing, Payloads
 │   │   ├── HologramOsnapOverrule.cs
 │   │   └── UndoInterceptor.cs
 │   ├── Render/
 │   │   ├── GhostManager.cs   # Motor de Hologramas (RAM)
+│   │   ├── CursorManager.cs  # Cursores remotos en tiempo real
 │   │   └── ShadowOverrule.cs # Shadow Triplet
 │   ├── HSyncPlugin.cs        # Punto de entrada
-│   └── HSync.csproj          # Multi-target: net48 + net8.0 + net10.0
+│   └── HSync.csproj
 ├── server/                    # Hub WebSocket (Node.js)
 │   ├── hub.js                # Servidor principal (HTTP + WS)
 │   ├── tester.js             # Bot BDD (Carla/Beto)
@@ -44,11 +53,12 @@ neural_v2/
 │   ├── src/                  # Monitoreo en tiempo real
 │   └── index.html
 ├── docs/                      # Documentación técnica
-│   ├── CONTEXT_AI.md         # Brain dump para IA
-│   ├── CHANGELOG.md          # Historial de cambios
+│   ├── CHANGELOG.md
+│   ├── NEURAL_SYNC_REGISTRY.md  # Sprint 14: Arquitectura modular
+│   ├── NEURAL_DATA_SCHEMA.md
 │   └── NEURAL_SHADOW_TRIPLET.md
 └── .github/workflows/        # CI/CD
-    └── build-plugin.yml      # Compilación automática
+    └── build-plugin.yml
 ```
 
 ## 🚀 Inicio Rápido
@@ -74,10 +84,14 @@ npm start
 
 | Comando | Descripción |
 |---------|-------------|
-| `HSYNC_SERVER` | **(Nuevo)** Configura la URL del Hub (ej: `wss://tu-app.onrender.com`). |
+| `HSYNC_SERVER` | Configura la URL del Hub (ej: `wss://tu-app.onrender.com`). |
 | `HSYNC_CONNECT` | Conectar al Hub + Auto-Discovery de entidades |
 | `HSYNC_BAKE` | Persistir hologramas en el DWG local |
-| `HSYNC_TEST_ME` | Seleccionar entidades y disparar mutaciones remotas de prueba |
+| `HSYNC_CURSORS` | Activar/Desactivar cursores remotos |
+| `HSYNC_FOLLOW` | Seguir la cámara de otro usuario |
+| `HSYNC_TEST_DRAW` | Test completo: Line + Circle + Polyline animados |
+| `HSYNC_TEST_ME` | Seleccionar entidades y disparar mutaciones remotas |
+| `HSYNC_TEST_CURSORS` | Test de cursores remotos animados |
 | `HSYNC_CLEAR` | Purgar todos los hologramas |
 
 ### 📊 Dashboard Web (Monitoreo)
@@ -108,6 +122,8 @@ dotnet build -f net8.0-windows    # Solo .NET 8
 - **Sprint 10:** Heartbeat, GripOverrule, EventMonitor (CREATE/UPDATE)
 - **Sprint 11:** Bake Engine, Detección de ERASE, Soporte de Polilíneas
 - **Sprint 12:** Auto-Discovery, HSYNC_TEST_ME, Soporte de Líneas en ApplyMergedState
+- **Sprint 13:** Estabilización de hologramas, Anti-eDegenerateGeometry, Actualización atómica de vértices
+- **Sprint 14:** Modularización (`SyncRegistry` + `IEntitySynchronizer`), soporte para Arc, Text y MText
 
 ## 📄 Licencia
 

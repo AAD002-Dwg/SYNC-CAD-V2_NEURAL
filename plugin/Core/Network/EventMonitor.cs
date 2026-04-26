@@ -49,19 +49,21 @@ namespace HSync.Core.Network
             if (IsBaking) return;
             if (e.DBObject is Entity ent)
             {
-                // AC-601: Registrar propiedad nativa (Canónico vs Proyectado)
+                // Solo tipos soportados (Sprint 13)
+                bool isValid = (ent is Line || ent is Circle || 
+                              ent is Autodesk.AutoCAD.DatabaseServices.Polyline || 
+                              ent is Polyline2d || ent is Polyline3d);
+                if (!isValid) return;
+
                 string uuid = ent.Handle.ToString().ToLowerInvariant();
                 OwnershipRegistry.RegisterLocalEntity(uuid, ent.Id);
 
-                if (_isCommandRunning)
+                // Registro reactivo inmediato
+                var client = HSyncPlugin.SocketClient;
+                if (client != null && client.IsConnected)
                 {
-                    _newlyCreatedObjects.Add(ent.Id);
-                }
-                else
-                {
-                    // Si no hay comando (ej: dibujo directo de primitiva)
-                    // Emitimos el CREATE inmediatamente después de que el objeto sea persistido
-                    // Nota: En AutoCAD, a veces es mejor esperar al CommandEnded incluso para CIRCULO
+                    string json = PayloadBuilder.BuildCreate(uuid, ent, client.UserId);
+                    _ = client.SendDeltaAsync(json); // Fire and forget para no bloquear el hilo de AutoCAD
                 }
             }
         }

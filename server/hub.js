@@ -57,6 +57,7 @@ wss.on('connection', (ws, req) => {
         resetHeartbeatTimer(ws);
         try {
             const payload = JSON.parse(data.toString('utf8'));
+            console.log(`[H-SYNC] Recibido: ${payload.type} de ${payload.user || 'IP:'+ip}`);
 
             // Handshake & Lifecycle Routing
             switch (payload.type) {
@@ -74,6 +75,9 @@ wss.on('connection', (ws, req) => {
                     break;
                 case 'TEST_CURSOR_START':
                     handleTestCursorStart(ws, payload);
+                    break;
+                case 'TEST_DRAW_START':
+                    handleTestDrawStart(ws, payload);
                     break;
                 case 'TEST_MUTATE_REQ':
                     handleTestMutateReq(ws, payload);
@@ -242,60 +246,38 @@ function handleTestMutateReq(ws, payload) {
             return;
         }
 
-        // Generar mutación aleatoria basada en el tipo de geometría
-        const offset = (Math.random() - 0.5) * 40; // Desplazamiento aleatorio ±20 unidades
+        const offset = (Math.random() - 0.5) * 40; 
         const color = colors[index % colors.length];
         let newGeom = {};
 
         if (existing.props && existing.props.geom) {
             const geom = existing.props.geom;
             if (geom.center) {
-                // Es un círculo
                 newGeom = {
-                    center: [
-                        geom.center[0] + offset,
-                        geom.center[1] + offset,
-                        0
-                    ],
+                    center: [geom.center[0] + offset, geom.center[1] + offset, 0],
                     radius: (geom.radius || 5) * (0.5 + Math.random())
                 };
             } else if (geom.start && geom.end) {
-                // Es una línea
                 newGeom = {
-                    start: geom.start, // Mantener el inicio
-                    end: [
-                        geom.end[0] + offset,
-                        geom.end[1] + offset,
-                        0
-                    ]
+                    start: geom.start, 
+                    end: [geom.end[0] + offset, geom.end[1] + offset, 0]
                 };
             } else if (geom.nodes) {
-                // Es una polilínea - rotar todos los nodos ligeramente
                 newGeom = {
-                    nodes: geom.nodes.map(n => [n[0] + offset, n[1] + offset]),
+                    nodes: geom.nodes.map(n => [n[0] + offset, n[1] + offset, 0]),
                     isClosed: geom.isClosed
                 };
             }
         }
 
-        // Crear el delta como si fuera un usuario externo (para que dispare el Shadowing)
         const delta = {
-            op: 'UPDATE',
-            id: id,
-            type: existing.type, // Sprint 12: Asegurar que el tipo viaje en la mutación
-            projectId: 'PROJ-TEST-AC601',
-            client_seq: Date.now() + index,
-            server_seq: null,
-            user: botUser,
-            state: 'LIVE',
+            op: 'UPDATE', id: id, type: existing.type, projectId: 'PROJ-TEST-AC601',
+            client_seq: Date.now() + index, user: botUser, state: 'LIVE',
             props: { geom: newGeom, color: color }
         };
 
-        // Procesar como delta estándar (enviamos null para que el broadcast incluya al solicitante)
         handleStandardDelta(null, delta, true);
     });
-
-    console.log(`[HUB] TEST_MUTATE completado: ${ids.length} mutaciones generadas por '${botUser}'.`);
 }
 
 function handleTestCursorStart(ws, payload) {
@@ -310,22 +292,70 @@ function handleTestCursorStart(ws, payload) {
     const interval = setInterval(() => {
         angle += 0.1;
         steps++;
-        
         const x = center[0] + radius * Math.cos(angle);
         const y = center[1] + radius * Math.sin(angle);
-        
-        const cursorMsg = JSON.stringify({
-            type: 'CURSOR',
-            user: botName,
-            pos: [x, y, 0]
-        });
-        
-        broadcastMessage(cursorMsg);
+        broadcastMessage(JSON.stringify({ type: 'CURSOR', user: botName, pos: [x, y, 0] }));
 
-        if (steps > 300) { // Parar después de 30 segundos
+        if (steps > 200) {
             clearInterval(interval);
-            console.log(`[HUB] 🤖 Bot ${botName} ha terminado su recorrido.`);
             broadcastMessage(JSON.stringify({ type: 'CURSOR_REMOVE', user: botName }));
         }
     }, 100);
+}
+
+function handleTestDrawStart(ws, payload) {
+    const botUser = "MARIA-BOT";
+    const center = payload.center || [200, 200, 0];
+    
+    console.log(`[HUB] 🤖 MARIA-BOT iniciando secuencia de dibujo en ${center}...`);
+
+    let step = 0;
+    const interval = setInterval(() => {
+        step++;
+
+        if (step === 2) {
+            handleStandardDelta(null, {
+                op: 'CREATE', id: 'bot_circle_1', type: 'CIRCLE', user: botUser,
+                props: { geom: { center: center, radius: 15 }, color: 1 }
+            });
+        }
+        
+        if (step === 10) {
+            handleStandardDelta(null, {
+                op: 'CREATE', id: 'bot_line_1', type: 'LINE', user: botUser,
+                props: { geom: { start: center, end: [center[0] + 60, center[1] + 60, 0] }, color: 2 }
+            });
+        }
+
+        if (step === 20) {
+            handleStandardDelta(null, {
+                op: 'CREATE', id: 'bot_poly_1', type: 'POLYLINE', user: botUser,
+                props: { 
+                    geom: { 
+                        nodes: [center, [center[0] + 40, center[1], 0], [center[0] + 20, center[1] + 40, 0]], 
+                        isClosed: true 
+                    }, 
+                    color: 3 
+                }
+            });
+        }
+
+        if (step > 20 && step < 60) {
+            const offset = (step - 20) * 1.5;
+            handleStandardDelta(null, {
+                op: 'UPDATE', id: 'bot_poly_1', type: 'POLYLINE', user: botUser,
+                props: { 
+                    geom: { 
+                        nodes: [center, [center[0] + 40 + offset, center[1], 0], [center[0] + 20, center[1] + 40 + offset, 0]], 
+                        isClosed: true 
+                    }
+                }
+            });
+        }
+
+        if (step >= 70) {
+            clearInterval(interval);
+            console.log(`[HUB] 🤖 Secuencia de dibujo de MARIA-BOT completada.`);
+        }
+    }, 300);
 }

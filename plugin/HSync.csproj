@@ -7,7 +7,7 @@
     <UseWPF>true</UseWPF>
     <Platforms>x64</Platforms>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <AssemblyName>HSync</AssemblyName>
+    <AssemblyName>HSync_Neural_V27</AssemblyName>
     <RootNamespace>HSync</RootNamespace>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
   </PropertyGroup>

@@ -44,6 +44,48 @@ Para polilíneas grandes, el delta puede especificar solo el nodo que cambió:
   "updateNode": { "idx": 5, "pos": [x, y] } // Solo si es un UPDATE de un vértice
 }
 ```
+
+### CIRCLE
+```json
+"geom": {
+  "center": [x, y, z],
+  "radius": 15.5
+}
+```
+
+### ARC *(Sprint 14)*
+```json
+"geom": {
+  "center": [x, y, z],
+  "radius": 10.0,
+  "startAngle": 0.0,
+  "endAngle": 3.14159
+}
+```
+> Nota: Los ángulos se expresan en **radianes** (convención nativa de AutoCAD).
+
+### TEXT (DBText) *(Sprint 14)*
+```json
+"geom": {
+  "position": [x, y, z],
+  "textString": "Nivel +3.50",
+  "height": 2.5,
+  "rotation": 0.0
+}
+```
+
+### MTEXT (Texto Multilínea) *(Sprint 14)*
+```json
+"geom": {
+  "location": [x, y, z],
+  "contents": "Planta Baja\\PNivel ±0.00",
+  "textHeight": 2.5,
+  "width": 50.0,
+  "rotation": 0.0
+}
+```
+> Nota: `contents` puede incluir códigos de formato RTF internos de AutoCAD (ej: `\\P` para salto de línea).
+
 ### ASSET (Imágenes, Fuentes, PDFs, XREFs)
 Las referencias externas no transmiten la geometría, sino el hash del archivo original.
 ```json
@@ -55,6 +97,7 @@ Las referencias externas no transmiten la geometría, sino el hash del archivo o
 }
 ```
 El cliente leerá el `assetHash` y si no lo tiene en su caché local (S3), pausará el render de esta entidad e iniciará un flujo de descarga asíncrono.
+
 
 ### BLOCKREF (Clave para eficiencia)
 ```json
@@ -81,7 +124,9 @@ Mutaciones que pueden fusionarse de forma segura, incluso si ocurren en paralelo
 Propiedades co-dependientes que definen físicamente a la entidad. El grupo entero se trata como una unidad. Si dos usuarios mutan el mismo Grupo Atómico simultáneamente, se aplica un conflicto estricto *Last Write Wins (LWW)* sobre el bloque entero, y el perdedor es notificado visualmente (Glow Rojo).
 *   **Geometría Lineal:** `startPoint`, `endPoint` (Mover un vértice sobrescribe a todos los vértices del oponente).
 *   **Geometría Circular:** `center`, `radius`
-*   **Textos:** `content`, `textHeight`, `location`, `rotation`
+*   **Geometría de Arco:** `center`, `radius`, `startAngle`, `endAngle`
+*   **Textos (DBText):** `position`, `textString`, `height`, `rotation`
+*   **Textos Multilínea (MText):** `location`, `contents`, `textHeight`, `width`, `rotation`
 
 *Regla del Juez Automerge:* 
 - Mutación de Usuario A (Scalar) + Mutación de Usuario B (Atomic) = **Merge Exitoso.**

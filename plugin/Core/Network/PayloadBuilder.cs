@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Autodesk.AutoCAD.DatabaseServices;
+using HSync.Core.Sync;
 
 namespace HSync.Core.Network
 {
@@ -38,20 +39,21 @@ namespace HSync.Core.Network
 
         private static long _localClientSequence = (long)(DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1))).TotalMilliseconds;
 
-        public static string BuildCreate(string globalId, Entity ent, string userId)
+        public static string BuildCreate(string globalId, Entity ent, string userId, Transaction tr = null)
         {
+            var sync = SyncRegistry.Get(ent.GetType());
             var delta = new EntityDelta
             {
                 id = globalId,
                 user = userId,
                 client_seq = ++_localClientSequence,
                 op = "CREATE",
-                type = ent.GetType().Name.ToUpper(),
+                type = sync?.TypeTag ?? ent.GetType().Name.ToUpper(),
                 props = new EntityProps
                 {
                     layer = ent.Layer,
                     color = ent.ColorIndex,
-                    geom = ExtractGeometry(ent)
+                    geom = sync != null ? sync.SerializeGeometry(ent, tr) : ExtractGeometryLegacy(ent)
                 }
             };
 
@@ -88,29 +90,37 @@ namespace HSync.Core.Network
             return JsonSerializer.Serialize(delta, _options);
         }
 
-        private static Dictionary<string, object> ExtractGeometry(Entity ent)
+        /// <summary>
+        /// Sprint 14: Fallback legacy para Polyline2d/3d que no tienen Synchronizer dedicado.
+        /// </summary>
+        private static Dictionary<string, object> ExtractGeometryLegacy(Entity ent)
         {
             var geom = new Dictionary<string, object>();
-            if (ent is Line line)
-            {
-                geom["start"] = new double[] { line.StartPoint.X, line.StartPoint.Y, line.StartPoint.Z };
-                geom["end"] = new double[] { line.EndPoint.X, line.EndPoint.Y, line.EndPoint.Z };
-            }
-            else if (ent is Circle circle)
-            {
-                geom["center"] = new double[] { circle.Center.X, circle.Center.Y, circle.Center.Z };
-                geom["radius"] = circle.Radius;
-            }
-            else if (ent is Autodesk.AutoCAD.DatabaseServices.Polyline poly)
+            if (ent is Polyline2d p2d)
             {
                 var nodes = new List<double[]>();
-                for (int i = 0; i < poly.NumberOfVertices; i++)
+                foreach (ObjectId vId in p2d)
                 {
-                    var pt = poly.GetPoint2dAt(i);
-                    nodes.Add(new double[] { pt.X, pt.Y });
+                    using (var v = vId.Open(OpenMode.ForRead) as Vertex2d)
+                    {
+                        if (v != null) nodes.Add(new double[] { v.Position.X, v.Position.Y });
+                    }
                 }
                 geom["nodes"] = nodes;
-                geom["isClosed"] = poly.Closed;
+                geom["isClosed"] = p2d.Closed;
+            }
+            else if (ent is Polyline3d p3d)
+            {
+                var nodes = new List<double[]>();
+                foreach (ObjectId vId in p3d)
+                {
+                    using (var v = vId.Open(OpenMode.ForRead) as PolylineVertex3d)
+                    {
+                        if (v != null) nodes.Add(new double[] { v.Position.X, v.Position.Y, v.Position.Z });
+                    }
+                }
+                geom["nodes"] = nodes;
+                geom["isClosed"] = p3d.Closed;
             }
             return geom;
         }

@@ -5,6 +5,7 @@
 # ── .NET / C# Build Artifacts ──
 plugin/bin/
 plugin/obj/
+plugin/dist/
 *.dll
 *.pdb
 *.exe

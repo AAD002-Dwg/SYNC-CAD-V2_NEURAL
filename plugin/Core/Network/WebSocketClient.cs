@@ -81,97 +81,86 @@ namespace HSync.Core.Network
             {
                 try
                 {
-                    var result = await localWs.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
-                    if (result.MessageType == WebSocketMessageType.Close)
+                    using (var ms = new System.IO.MemoryStream())
                     {
-                        break;
-                    }
-
-                    string msg = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    
-                    using (var doc = System.Text.Json.JsonDocument.Parse(msg))
-                    {
-                        string type = null;
-                        if (doc.RootElement.TryGetProperty("type", out var typeProp))
-                            type = typeProp.GetString();
-
-                        if (type == "RECONCILE_FIX")
+                        WebSocketReceiveResult result;
+                        do
                         {
-                            string entityId = doc.RootElement.GetProperty("id").GetString();
-                            string winnerStateRaw = doc.RootElement.GetProperty("state").GetRawText();
+                            result = await localWs.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+                            if (result.MessageType == WebSocketMessageType.Close) break;
+                            ms.Write(buffer, 0, result.Count);
+                        } 
+                        while (!result.EndOfMessage);
 
-                            AppIdleManager.EnqueueAction(() => {
-                                HSync.Render.GhostManager.SetGlowRed(entityId);
-                            });
+                        if (result.MessageType == WebSocketMessageType.Close) break;
 
-                            Task.Delay(2000).ContinueWith(_ => {
-                                AppIdleManager.EnqueueAction(() => {
-                                    using (var stateDoc = System.Text.Json.JsonDocument.Parse(winnerStateRaw))
-                                        HSync.Render.GhostManager.ApplyMergedState(entityId, stateDoc.RootElement);
-                                });
-                            });
-                        }
-                        else if (type == "SESSION_INIT")
+                        ms.Position = 0;
+                        using (var reader = new System.IO.StreamReader(ms, Encoding.UTF8))
                         {
-                            string rawPayload = doc.RootElement.GetRawText();
-                            _ = Task.Run(async () => {
-                                using (var initDoc = System.Text.Json.JsonDocument.Parse(rawPayload))
-                                    await HandshakeManager.HandleSessionInitAsync(initDoc.RootElement, this);
-                            });
-                        }
-                        else if (type == "CURSOR")
-                        {
-                            string senderId = doc.RootElement.GetProperty("user").GetString();
-                            if (senderId == _userId) continue; // No procesar nuestro propio cursor
-
-                            var pos = doc.RootElement.GetProperty("pos");
-                            var point = new Point3d(pos[0].GetDouble(), pos[1].GetDouble(), pos[2].GetDouble());
-                            
-                            // Actualizar visualización del cursor (Thread-safe via AppIdle)
-                            AppIdleManager.EnqueueAction(() => {
-                                HSync.Render.CursorManager.UpdateRemoteCursor(senderId, point);
-                            });
-                        }
-                        else if (doc.RootElement.TryGetProperty("op", out var opProp))
-                        {
-                            // ¡ESTE ES EL MOTOR DE SYNC EN VIVO!
-                            // Si el mensaje tiene una "op" (CREATE, UPDATE, DELETE), es un Delta de geometría.
-                            string op = opProp.GetString();
-                            string id = doc.RootElement.GetProperty("id").GetString();
-                            string rawDelta = doc.RootElement.GetRawText();
-
-                            AppIdleManager.EnqueueAction(() => {
-                                try {
-                                    using (var deltaDoc = System.Text.Json.JsonDocument.Parse(rawDelta))
-                                    {
-                                        if (op == "DELETE") {
-                                            HSync.Render.GhostManager.RemoveGhost(id);
-                                        } else {
-                                            // Para CREATE y UPDATE, inyectamos o actualizamos el holograma
-                                            var deltaElem = deltaDoc.RootElement;
-                                            if (deltaElem.TryGetProperty("props", out var props) && props.TryGetProperty("geom", out var geom)) {
-                                                // Reutilizamos ApplyMergedState para actualizar la geometría del ghost
-                                                // Si el ghost no existe, primero lo creamos (lógica simple para Fase 2)
-                                                HSync.Render.GhostManager.ApplyIncomingDelta(id, deltaElem);
-                                            }
-                                        }
-                                    }
-                                } catch (Exception ex) {
-                                    Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument?.Editor.WriteMessage($"\n[H-SYNC ERR] Delta Sync Error: {ex.Message}");
-                                }
-                            });
+                            string msg = await reader.ReadToEndAsync();
+                            ProcessIncomingMessage(msg);
                         }
                     }
                 }
-                catch (OperationCanceledException)
-                {
-                    break; // Cancelación limpia por reconexión
-                }
+                catch (OperationCanceledException) { break; }
                 catch (Exception ex)
                 {
                     Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager
                         .MdiActiveDocument?.Editor.WriteMessage($"\n[H-SYNC NET] Loop Crash: {ex.Message}");
                     break;
+                }
+            }
+        }
+
+        private void ProcessIncomingMessage(string msg)
+        {
+            using (var doc = System.Text.Json.JsonDocument.Parse(msg))
+            {
+                string type = null;
+                if (doc.RootElement.TryGetProperty("type", out var typeProp))
+                    type = typeProp.GetString();
+
+                if (type == "RECONCILE_FIX")
+                {
+                    string entityId = doc.RootElement.GetProperty("id").GetString();
+                    string winnerStateRaw = doc.RootElement.GetProperty("state").GetRawText();
+                    AppIdleManager.EnqueueAction(() => { HSync.Render.GhostManager.SetGlowRed(entityId); });
+                    Task.Delay(2000).ContinueWith(_ => {
+                        AppIdleManager.EnqueueAction(() => {
+                            using (var stateDoc = System.Text.Json.JsonDocument.Parse(winnerStateRaw))
+                                HSync.Render.GhostManager.ApplyMergedState(entityId, stateDoc.RootElement);
+                        });
+                    });
+                }
+                else if (type == "SESSION_INIT")
+                {
+                    string rawPayload = doc.RootElement.GetRawText();
+                    _ = Task.Run(async () => {
+                        using (var initDoc = System.Text.Json.JsonDocument.Parse(rawPayload))
+                            await HandshakeManager.HandleSessionInitAsync(initDoc.RootElement, this);
+                    });
+                }
+                else if (type == "CURSOR")
+                {
+                    string senderId = doc.RootElement.GetProperty("user").GetString();
+                    if (senderId == _userId) return;
+                    var pos = doc.RootElement.GetProperty("pos");
+                    var point = new Point3d(pos[0].GetDouble(), pos[1].GetDouble(), pos[2].GetDouble());
+                    AppIdleManager.EnqueueAction(() => { HSync.Render.CursorManager.UpdateRemoteCursor(senderId, point); });
+                }
+                else if (doc.RootElement.TryGetProperty("op", out var opProp))
+                {
+                    string op = opProp.GetString();
+                    string id = doc.RootElement.GetProperty("id").GetString();
+                    string rawDelta = doc.RootElement.GetRawText();
+                    AppIdleManager.EnqueueAction(() => {
+                        try {
+                            using (var deltaDoc = System.Text.Json.JsonDocument.Parse(rawDelta)) {
+                                if (op == "DELETE") HSync.Render.GhostManager.RemoveGhost(id);
+                                else HSync.Render.GhostManager.ApplyIncomingDelta(id, deltaDoc.RootElement);
+                            }
+                        } catch { }
+                    });
                 }
             }
         }

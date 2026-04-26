@@ -1,10 +1,13 @@
 using System;
+using System.Linq;
+using System.Collections.Generic;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.DatabaseServices;
 using HSync.Core;
 using HSync.Core.Network;
+using HSync.Core.Sync;
 using HSync.Render;
 
 [assembly: ExtensionApplication(typeof(HSync.HSyncPlugin))]
@@ -91,23 +94,48 @@ namespace HSync
             if (res.Status == PromptStatus.OK)
             {
                 string newUrl = res.StringResult.Trim();
-                
-                // Auto-corrección de protocolo inteligente (Sprint 12)
                 if (newUrl.StartsWith("https://")) newUrl = newUrl.Replace("https://", "wss://");
                 else if (newUrl.StartsWith("http://")) newUrl = newUrl.Replace("http://", "ws://");
-                else if (!newUrl.StartsWith("ws://") && !newUrl.StartsWith("wss://"))
-                {
-                    newUrl = "ws://" + newUrl; // Fallback por defecto
-                }
-
-                // Reiniciar cliente si la URL cambió radicalmente
-                if (SocketClient != null && ServerUrl != newUrl)
-                {
-                    SocketClient = null; 
-                }
                 
                 ServerUrl = newUrl;
                 ed.WriteMessage($"\n[H-SYNC] Servidor configurado: {ServerUrl}");
+            }
+        }
+
+        [CommandMethod("HSYNC_CURSORS")]
+        public void ToggleCursors()
+        {
+            var ed = Application.DocumentManager.MdiActiveDocument.Editor;
+            var opt = new PromptKeywordOptions("\nVisualización de cursores remotos:");
+            opt.Keywords.Add("ON");
+            opt.Keywords.Add("OFF");
+            opt.Keywords.Default = HSync.Render.CursorManager.ShowCursors ? "ON" : "OFF";
+
+            var res = ed.GetKeywords(opt);
+            if (res.Status == PromptStatus.OK)
+            {
+                bool show = res.StringResult == "ON";
+                HSync.Render.CursorManager.ShowCursors = show;
+                if (!show) HSync.Render.CursorManager.ClearAllCursors();
+                ed.WriteMessage($"\n[H-SYNC] Cursores remotos: {(show ? "ACTIVADOS" : "DESACTIVADOS")}");
+            }
+        }
+
+        [CommandMethod("HSYNC_FOLLOW")]
+        public void FollowUser()
+        {
+            var ed = Application.DocumentManager.MdiActiveDocument.Editor;
+            var opt = new PromptStringOptions("\nUsuario a seguir (vacío para dejar de seguir)");
+            opt.AllowSpaces = true;
+            if (!string.IsNullOrEmpty(HSync.Render.CursorManager.FollowUserId))
+                opt.DefaultValue = HSync.Render.CursorManager.FollowUserId;
+
+            var res = ed.GetString(opt);
+            if (res.Status == PromptStatus.OK)
+            {
+                string user = res.StringResult;
+                HSync.Render.CursorManager.FollowUserId = string.IsNullOrEmpty(user) ? null : user;
+                ed.WriteMessage(string.IsNullOrEmpty(user) ? "\n[H-SYNC] Modo seguimiento desactivado." : $"\n[H-SYNC] Siguiendo a: {user}");
             }
         }
 
@@ -217,10 +245,9 @@ namespace HSync
                         var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
                         if (ent == null) continue;
 
-                        // Solo entidades compatibles (Sprint 12: soporte extendido)
-                        bool isValid = (ent is Line || ent is Circle || 
-                                      ent is Autodesk.AutoCAD.DatabaseServices.Polyline || 
-                                      ent is Polyline2d || ent is Polyline3d);
+                        // Solo entidades compatibles (Sprint 14: delegación a SyncRegistry)
+                        bool isValid = SyncRegistry.IsSupported(ent.GetType()) ||
+                                      ent is Polyline2d || ent is Polyline3d;
                         
                         if (ent is BlockBegin || ent is BlockEnd) isValid = false;
                         if (!isValid) continue;
@@ -340,6 +367,33 @@ namespace HSync
             await SocketClient.SendDeltaAsync(json);
         }
 
+        [CommandMethod("HSYNC_TEST_DRAW")]
+        public async void TestDrawSimulation()
+        {
+            var ed = Application.DocumentManager.MdiActiveDocument.Editor;
+            if (SocketClient == null || !SocketClient.IsConnected)
+            {
+                ed.WriteMessage("\n[H-SYNC] Error: Debes estar conectado (HSYNC_CONNECT) para probar el bot de dibujo.");
+                return;
+            }
+
+            var ppr = ed.GetPoint("\nCentro de la simulación de dibujo: ");
+            if (ppr.Status != PromptStatus.OK) return;
+
+            ed.WriteMessage($"\n[H-SYNC] >> Enviando petición de dibujo al Hub (Tipo: TEST_DRAW_START)...");
+            
+            var request = new
+            {
+                type = "TEST_DRAW_START",
+                user = "ALAN-ACAD",
+                center = new double[] { ppr.Value.X, ppr.Value.Y, ppr.Value.Z }
+            };
+
+            string json = System.Text.Json.JsonSerializer.Serialize(request);
+            await SocketClient.SendDeltaAsync(json);
+            ed.WriteMessage("\n[H-SYNC] >> Petición enviada. Esperando a MARIA-BOT...");
+        }
+
         [CommandMethod("HSYNC_HEAVY_TEST")]
         public void TestHeavyGhostInjection()
         {
@@ -384,7 +438,9 @@ namespace HSync
             if (doc == null) return;
             
             var shadedIds = HSync.Render.ShadowRegistry.GetAllShaded();
-            if (shadedIds.Length == 0)
+            var activeGhostsCount = GhostManager.GetActiveGhostMap().Count;
+            
+            if (shadedIds.Length == 0 && activeGhostsCount == 0)
             {
                 doc.Editor.WriteMessage("\n[H-SYNC] No hay hologramas pendientes de Bake.");
                 return;
@@ -400,10 +456,13 @@ namespace HSync
                 using (var docLock = doc.LockDocument())
                 using (var tr = doc.TransactionManager.StartTransaction())
                 {
+                    var bt = tr.GetObject(doc.Database.BlockTableId, OpenMode.ForRead) as BlockTable;
+                    var btr = tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
+
+                    // 1. Procesar sombras (Objetos locales actualizados remotamente)
                     foreach (var id in shadedIds)
                     {
                         if (id.IsErased) continue;
-                        
                         string uuid = id.Handle.ToString().ToLowerInvariant();
                         var ghost = GhostManager.GetGhost(uuid);
                         if (ghost == null) continue;
@@ -411,25 +470,47 @@ namespace HSync
                         var nativeEnt = tr.GetObject(id, OpenMode.ForWrite) as Entity;
                         if (nativeEnt != null)
                         {
-                            // Actualizar geometría nativa desde el holograma canónico
-                            if (nativeEnt is Autodesk.AutoCAD.DatabaseServices.Line natLine && ghost is Autodesk.AutoCAD.DatabaseServices.Line ghLine)
-                            {
-                                natLine.StartPoint = ghLine.StartPoint;
-                                natLine.EndPoint = ghLine.EndPoint;
-                            }
-                            else if (nativeEnt is Autodesk.AutoCAD.DatabaseServices.Circle natCirc && ghost is Autodesk.AutoCAD.DatabaseServices.Circle ghCirc)
-                            {
-                                natCirc.Center = ghCirc.Center;
-                                natCirc.Radius = ghCirc.Radius;
-                            }
-                            
-                            // Por ahora, para simplificar Fase 1, limpiamos el Overrule
+                            UpdateNativeFromGhost(nativeEnt, ghost);
+                            nativeEnt.RecordGraphicsModified(true);
                             ShadowRegistry.Unshadow(id);
                             GhostManager.RemoveGhost(uuid);
                             bakedCount++;
                         }
                     }
+
+                    // 2. Procesar fantasmas remotos (Objetos de compañeros / bots)
+                    var allGhosts = GhostManager.GetAllActiveGhosts().ToList();
+                    foreach (var ghost in allGhosts)
+                    {
+                        // Buscamos el ID global del ghost
+                        string gId = null;
+                        foreach (var kvp in GhostManager.GetActiveGhostMap()) if (kvp.Value == ghost) gId = kvp.Key;
+                        if (gId == null) continue;
+
+                        // Si es un objeto nativo (sombreado), ya lo procesamos arriba
+                        if (OwnershipRegistry.IsOwnedLocally(gId)) continue;
+
+                        // Sprint 14: Instanciación pura via SyncRegistry (Anti-Corrupción)
+                        var sync = SyncRegistry.Get(ghost.GetType());
+                        Entity newEnt = null;
+
+                        if (sync != null)
+                        {
+                            newEnt = sync.InstantiatePure(ghost);
+                        }
+
+                        if (newEnt != null)
+                        {
+                            SyncRegistry.ApplyCommonProps(newEnt, ghost);
+                            btr.AppendEntity(newEnt);
+                            tr.AddNewlyCreatedDBObject(newEnt, true);
+                            GhostManager.RemoveGhost(gId);
+                            bakedCount++;
+                        }
+                    }
+
                     tr.Commit();
+                    doc.Editor.UpdateScreen();
                 }
             }
             finally
@@ -464,6 +545,18 @@ namespace HSync
                     tr.Commit();
                 }
             }
+        }
+        /// <summary>
+        /// Sprint 14: Transferencia de geometría Ghost → Nativa via SyncRegistry.
+        /// </summary>
+        private void UpdateNativeFromGhost(Entity nativeEnt, Entity ghost)
+        {
+            var sync = SyncRegistry.Get(ghost.GetType());
+            if (sync != null)
+            {
+                sync.TransferGeometry(ghost, nativeEnt);
+            }
+            SyncRegistry.ApplyCommonProps(nativeEnt, ghost);
         }
     }
 }
