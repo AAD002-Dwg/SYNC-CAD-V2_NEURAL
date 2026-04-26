@@ -24,6 +24,9 @@ namespace HSync
         public static SyncSocketClient SocketClient { get; private set; }
         public static string ServerUrl { get; set; } = "ws://localhost:3000";
 
+        // ID Único por instancia para evitar colisiones en el Hub (MachineName + Suffix)
+        public static readonly string UserId = $"{Environment.MachineName}_{Guid.NewGuid().ToString().Substring(0, 4)}".ToUpper();
+
         public void Initialize()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -182,7 +185,7 @@ namespace HSync
             {
                 if (SocketClient == null || !SocketClient.IsConnected) 
                 {
-                    SocketClient = new SyncSocketClient(ServerUrl, "ALAN-ACAD");
+                    SocketClient = new SyncSocketClient(ServerUrl, UserId);
                 }
 
                 await SocketClient.ConnectAsync();
