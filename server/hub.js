@@ -252,10 +252,17 @@ function handleTestMutateReq(ws, payload) {
 
         if (existing.props && existing.props.geom) {
             const geom = existing.props.geom;
-            if (geom.center) {
+            if (geom.center && existing.type === 'CIRCLE') {
                 newGeom = {
                     center: [geom.center[0] + offset, geom.center[1] + offset, 0],
                     radius: (geom.radius || 5) * (0.5 + Math.random())
+                };
+            } else if (geom.center && existing.type === 'ARC') {
+                newGeom = {
+                    center: [geom.center[0] + offset, geom.center[1] + offset, 0],
+                    radius: (geom.radius || 10) * (0.8 + Math.random() * 0.4),
+                    startAngle: (geom.startAngle || 0) + 0.1,
+                    endAngle: (geom.endAngle || Math.PI) + 0.1
                 };
             } else if (geom.start && geom.end) {
                 newGeom = {
@@ -266,6 +273,20 @@ function handleTestMutateReq(ws, payload) {
                 newGeom = {
                     nodes: geom.nodes.map(n => [n[0] + offset, n[1] + offset, 0]),
                     isClosed: geom.isClosed
+                };
+            } else if (geom.position && existing.type === 'TEXT') {
+                newGeom = {
+                    position: [geom.position[0] + offset, geom.position[1] + offset, 0],
+                    textString: geom.textString + "*",
+                    height: (geom.height || 2.5),
+                    rotation: (geom.rotation || 0) + 0.05
+                };
+            } else if (geom.location && existing.type === 'MTEXT') {
+                newGeom = {
+                    location: [geom.location[0] + offset, geom.location[1] + offset, 0],
+                    contents: geom.contents + "\\P*",
+                    textHeight: (geom.textHeight || 2.5),
+                    rotation: (geom.rotation || 0) + 0.05
                 };
             }
         }
@@ -340,8 +361,52 @@ function handleTestDrawStart(ws, payload) {
             });
         }
 
-        if (step > 20 && step < 60) {
-            const offset = (step - 20) * 1.5;
+        if (step === 30) {
+            handleStandardDelta(null, {
+                op: 'CREATE', id: 'bot_arc_1', type: 'ARC', user: botUser,
+                props: { 
+                    geom: { 
+                        center: [center[0] - 50, center[1], 0], 
+                        radius: 25, 
+                        startAngle: 0, 
+                        endAngle: Math.PI 
+                    }, 
+                    color: 4 
+                }
+            });
+        }
+
+        if (step === 40) {
+            handleStandardDelta(null, {
+                op: 'CREATE', id: 'bot_text_1', type: 'TEXT', user: botUser,
+                props: { 
+                    geom: { 
+                        position: [center[0], center[1] - 30, 0], 
+                        textString: "H-SYNC TEXT", 
+                        height: 5 
+                    }, 
+                    color: 5 
+                }
+            });
+        }
+
+        if (step === 50) {
+            handleStandardDelta(null, {
+                op: 'CREATE', id: 'bot_mtext_1', type: 'MTEXT', user: botUser,
+                props: { 
+                    geom: { 
+                        location: [center[0] + 50, center[1] - 30, 0], 
+                        contents: "MTEXT\\PNEURAL", 
+                        textHeight: 4,
+                        width: 50
+                    }, 
+                    color: 6 
+                }
+            });
+        }
+
+        if (step > 50 && step < 80) {
+            const offset = (step - 50) * 2;
             handleStandardDelta(null, {
                 op: 'UPDATE', id: 'bot_poly_1', type: 'POLYLINE', user: botUser,
                 props: { 
@@ -353,7 +418,7 @@ function handleTestDrawStart(ws, payload) {
             });
         }
 
-        if (step >= 70) {
+        if (step >= 90) {
             clearInterval(interval);
             console.log(`[HUB] 🤖 Secuencia de dibujo de MARIA-BOT completada.`);
         }

@@ -21,6 +21,13 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [activeUsers, setActiveUsers] = useState([]);
   const [stateCount,  setStateCount]  = useState(0);
+  const [history,     setHistory]     = useState([]);
+  const [desktopToken, setDesktopToken] = useState(null);
+  const [copied,       setCopied]       = useState(false);
+  
+  // Dummy locks for now (Neural v2 is layer-less, but UI expects it)
+  const locks = {};
+
 
   useEffect(() => {
     // Carga inicial

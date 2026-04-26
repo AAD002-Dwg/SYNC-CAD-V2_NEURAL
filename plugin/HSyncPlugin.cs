@@ -5,6 +5,7 @@ using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.Geometry;
 using HSync.Core;
 using HSync.Core.Network;
 using HSync.Core.Sync;
@@ -429,6 +430,50 @@ namespace HSync
             
             sw.Stop();
             doc.Editor.WriteMessage($"\n[H-SYNC] 10,000 entidades pesadas combinadas inyectadas en {sw.ElapsedMilliseconds}ms. ¡Haz Pan/Zoom ahora!");
+        }
+
+        [CommandMethod("HSYNC_TEST_COMPLEX")]
+        public void TestComplexEntities()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var db = doc.Database;
+            var ed = doc.Editor;
+
+            ed.WriteMessage("\n[H-SYNC] Generando entidades complejas locales (Arc, Text, MText) para validación de Red...");
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var bt = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
+                var btr = tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
+
+                // 1. Arc
+                var arc = new Arc(new Point3d(100, 0, 0), 50, 0.5, 2.5);
+                arc.ColorIndex = 4;
+                btr.AppendEntity(arc);
+                tr.AddNewlyCreatedDBObject(arc, true);
+
+                // 2. Text
+                var text = new DBText();
+                text.Position = new Point3d(200, 0, 0);
+                text.TextString = "H-SYNC NATIVE TEXT";
+                text.Height = 10;
+                text.ColorIndex = 5;
+                btr.AppendEntity(text);
+                tr.AddNewlyCreatedDBObject(text, true);
+
+                // 3. MText
+                var mtext = new MText();
+                mtext.Location = new Point3d(350, 0, 0);
+                mtext.Contents = "H-SYNC\\PNATIVE MTEXT";
+                mtext.TextHeight = 10;
+                mtext.ColorIndex = 6;
+                btr.AppendEntity(mtext);
+                tr.AddNewlyCreatedDBObject(mtext, true);
+
+                tr.Commit();
+            }
+            ed.WriteMessage("\n[H-SYNC] Entidades creadas. Revisa la consola del Hub para ver los deltas CREATE.");
         }
 
         [CommandMethod("HSYNC_BAKE")]
